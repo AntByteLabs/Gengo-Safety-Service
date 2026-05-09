@@ -8,7 +8,7 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "migrate": "psql $DATABASE_URL -f migrations/001_init.sql"
+    "migrate": "psql $DATABASE_URL -f migrations/001_init.sql && psql $DATABASE_URL -f migrations/002_sos_dispatch_and_active_unique.sql"
   },
   "dependencies": {
     "axios": "^1.7.2",
