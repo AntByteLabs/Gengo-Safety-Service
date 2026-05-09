@@ -13,6 +13,8 @@ export declare const config: {
     SPARROW_TOKEN: string;
     SPARROW_FROM: string;
     SPARROW_BASE_URL: string;
+    INTERNAL_TRUSTED_CIDRS: string;
+    INTERNAL_AUTH_SECRET?: string | undefined;
 };
 export type Config = typeof config;
 //# sourceMappingURL=config.d.ts.map

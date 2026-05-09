@@ -19,6 +19,19 @@ const schema = z.object({
   SPARROW_TOKEN: z.string().min(1),
   SPARROW_FROM: z.string().min(1).default('GenGo'),
   SPARROW_BASE_URL: z.string().url().default('https://api.sparrowsms.com/v2'),
+
+  // ── Internal-mesh trust (X-User-Id propagation from api-gateway) ──────────
+  // Comma-separated CIDR allowlist for the *immediate peer* (req.socket.remoteAddress)
+  // that may set X-User-Id. Empty list = CIDR check disabled (HMAC required).
+  // Default is a permissive private-range list because docker-compose puts every
+  // service in the same RFC1918 mesh; tighten in production via env override.
+  INTERNAL_TRUSTED_CIDRS: z
+    .string()
+    .default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128'),
+  // HMAC-SHA256 shared secret. If set, an `X-Internal-Auth` header MUST accompany
+  // X-User-Id; the value is hex(hmacSha256(secret, userId)). Constant-time compared.
+  // Either CIDR match OR valid HMAC is sufficient. JWT path is always allowed.
+  INTERNAL_AUTH_SECRET: z.string().min(16).optional(),
 });
 
 const parsed = schema.safeParse(process.env);
