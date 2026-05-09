@@ -5,6 +5,7 @@ import {
   insertSosAlert,
   findActiveSosAlert,
   cancelActiveSosAlert,
+  PG_UNIQUE_VIOLATION,
 } from '../repositories/sos.repository.js';
 import { findActiveContactsByUserId } from '../repositories/contact.repository.js';
 import { sendSms, redactPhone } from '../infrastructure/sparrow.js';
@@ -40,22 +41,34 @@ export async function createSos(params: {
   lng: number;
   message?: string;
 }): Promise<SosAlertDto> {
-  // Enforce uniqueness: one active SOS per user at a time
-  const existing = await findActiveSosAlert(params.userId);
-  if (existing) {
-    throw AppError.conflict('User already has an active SOS alert');
-  }
-
   const id = `sos_${ulid()}`;
 
-  const row = await insertSosAlert({
-    id,
-    userId: params.userId,
-    tripId: params.tripId ?? null,
-    lat: params.lat,
-    lng: params.lng,
-    message: params.message ?? null,
-  });
+  // Atomic uniqueness: rely on the partial unique index on
+  // safety.sos_alerts(user_id) WHERE status='active' (migration 002).
+  // Treat 23505 (unique_violation) as "user already has an active SOS"
+  // and return the existing row — never block an emergency on a race.
+  let row: SosAlertRow;
+  try {
+    row = await insertSosAlert({
+      id,
+      userId: params.userId,
+      tripId: params.tripId ?? null,
+      lat: params.lat,
+      lng: params.lng,
+      message: params.message ?? null,
+    });
+  } catch (err) {
+    if (isPgUniqueViolation(err)) {
+      const existing = await findActiveSosAlert(params.userId);
+      if (existing) {
+        // Idempotent: the second caller gets the *current* active alert
+        // (same shape as the original create response). No fan-out side
+        // effects re-fired.
+        return rowToDto(existing);
+      }
+    }
+    throw err;
+  }
 
   const dto = rowToDto(row);
 
@@ -109,6 +122,16 @@ export async function getActiveSos(userId: string): Promise<SosAlertDto> {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+/** Narrows an unknown thrown value to a Postgres unique-violation (23505). */
+function isPgUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: unknown }).code === PG_UNIQUE_VIOLATION
+  );
+}
 
 async function dispatchEmergencySms(userId: string, sos: SosAlertDto): Promise<void> {
   const contacts = await findActiveContactsByUserId(userId);

@@ -30,20 +30,34 @@ function rowToDto(row) {
  * must never block the HTTP response.
  */
 async function createSos(params) {
-    // Enforce uniqueness: one active SOS per user at a time
-    const existing = await (0, sos_repository_js_1.findActiveSosAlert)(params.userId);
-    if (existing) {
-        throw errors_js_1.AppError.conflict('User already has an active SOS alert');
-    }
     const id = `sos_${(0, ulid_1.ulid)()}`;
-    const row = await (0, sos_repository_js_1.insertSosAlert)({
-        id,
-        userId: params.userId,
-        tripId: params.tripId ?? null,
-        lat: params.lat,
-        lng: params.lng,
-        message: params.message ?? null,
-    });
+    // Atomic uniqueness: rely on the partial unique index on
+    // safety.sos_alerts(user_id) WHERE status='active' (migration 002).
+    // Treat 23505 (unique_violation) as "user already has an active SOS"
+    // and return the existing row — never block an emergency on a race.
+    let row;
+    try {
+        row = await (0, sos_repository_js_1.insertSosAlert)({
+            id,
+            userId: params.userId,
+            tripId: params.tripId ?? null,
+            lat: params.lat,
+            lng: params.lng,
+            message: params.message ?? null,
+        });
+    }
+    catch (err) {
+        if (isPgUniqueViolation(err)) {
+            const existing = await (0, sos_repository_js_1.findActiveSosAlert)(params.userId);
+            if (existing) {
+                // Idempotent: the second caller gets the *current* active alert
+                // (same shape as the original create response). No fan-out side
+                // effects re-fired.
+                return rowToDto(existing);
+            }
+        }
+        throw err;
+    }
     const dto = rowToDto(row);
     // ── Fire-and-forget side effects ──────────────────────────────────────────
     // 1. Send SMS to all active emergency contacts (failures must NOT throw)
@@ -89,6 +103,13 @@ async function getActiveSos(userId) {
     return rowToDto(row);
 }
 // ── Internal helpers ──────────────────────────────────────────────────────────
+/** Narrows an unknown thrown value to a Postgres unique-violation (23505). */
+function isPgUniqueViolation(err) {
+    return (typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        err.code === sos_repository_js_1.PG_UNIQUE_VIOLATION);
+}
 async function dispatchEmergencySms(userId, sos) {
     const contacts = await (0, contact_repository_js_1.findActiveContactsByUserId)(userId);
     if (contacts.length === 0) {
