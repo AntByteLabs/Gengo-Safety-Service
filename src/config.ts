@@ -32,6 +32,12 @@ const schema = z.object({
   // X-User-Id; the value is hex(hmacSha256(secret, userId)). Constant-time compared.
   // Either CIDR match OR valid HMAC is sufficient. JWT path is always allowed.
   INTERNAL_AUTH_SECRET: z.string().min(16).optional(),
+
+  // user-svc base URL — used to fetch the SOS-triggering user's display name
+  // for the outbound SMS template. The lookup is best-effort; on failure we
+  // fall back to a generic "Someone" so an emergency is never blocked.
+  USER_SVC_URL: z.string().url().default('http://user-svc:3002'),
+  USER_SVC_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
 });
 
 const parsed = schema.safeParse(process.env);
