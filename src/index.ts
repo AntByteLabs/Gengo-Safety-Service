@@ -22,6 +22,11 @@ async function main(): Promise<void> {
     );
   });
 
+  // HTTP hardening — see auth-svc for full rationale.
+  server.keepAliveTimeout = 120_000;
+  server.headersTimeout = 125_000;
+  server.requestTimeout = 30_000;
+
   const shutdown = async (): Promise<void> => {
     console.log('[safety-svc] Shutting down…');
     server.close(async () => {

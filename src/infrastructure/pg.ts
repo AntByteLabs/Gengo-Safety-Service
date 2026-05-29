@@ -1,7 +1,8 @@
 import { Pool } from 'pg';
 import { config } from '../config.js';
 
-// One pool shared across the process lifetime; pg handles connection reuse
+// One pool shared across the process lifetime. Pool hardening — see
+// auth-svc/pg.ts for rationale.
 export const pool = new Pool({
   host: config.PG_HOST,
   port: config.PG_PORT,
@@ -11,6 +12,9 @@ export const pool = new Pool({
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
+  statement_timeout: 10_000,
+  query_timeout: 10_000,
+  keepAlive: true,
 });
 
 pool.on('error', (err) => {
